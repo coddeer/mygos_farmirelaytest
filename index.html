@@ -347,22 +347,22 @@
   </div>
 </header>
 
-<!-- ════ CREDENTIALS MODAL ════ -->
+< ════ CREDENTIALS MODAL ════ -->
 <div class="cred-overlay" id="cred-overlay">
   <div class="cred-box">
-    <div class="cred-title">🔌 MQTT Bağlantı Ayarları</div>
+    <div class="cred-title">🔌 MQTT Connection</div>
     <div class="cred-label">Broker (HiveMQ Host)</div>
     <input class="cred-input" id="ci-broker" type="text" placeholder="xxxx.s1.eu.hivemq.cloud" autocomplete="off" />
     <div class="cred-label">Port</div>
     <input class="cred-input" id="ci-port" type="number" placeholder="8884" />
-    <div class="cred-label">Kullanıcı Adı</div>
+    <div class="cred-label">Username</div>
     <input class="cred-input" id="ci-user" type="text" autocomplete="username" />
-    <div class="cred-label">Parola</div>
+    <div class="cred-label">Password</div>
     <input class="cred-input" id="ci-pass" type="password" autocomplete="current-password" />
-    <div class="cred-hint">Bilgiler yalnızca bu cihazın tarayıcısında saklanır. Sunucuya gönderilmez.</div>
+    <!--div class="cred-hint">Bilgiler yalnızca bu cihazın tarayıcısında saklanır. Sunucuya gönderilmez.</div-->
     <div class="btn-row">
-      <button class="btn btn-sec" onclick="closeCredModal()">İptal</button>
-      <button class="btn btn-ok" onclick="saveCredentials()">Kaydet & Bağlan</button>
+      <button class="btn btn-sec" onclick="closeCredModal()">Cancel</button>
+      <button class="btn btn-ok" onclick="saveCredentials()">Save & Connect</button>
     </div>
   </div>
 </div>
