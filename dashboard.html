@@ -78,10 +78,32 @@
     /* CHART CARD */
     .chart-card{background:var(--surface);border:1px solid var(--border);
       border-radius:12px;padding:16px}
-    .chart-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+    .chart-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px}
     .chart-title{font-size:.75rem;font-weight:600}
     .chart-meta{font-size:.65rem;color:var(--dim)}
     .chart-wrap{position:relative;height:240px}
+
+    /* PERIOD SELECTOR */
+    .period-btns{display:flex;gap:4px;flex-shrink:0}
+    .pbtn{
+      padding:4px 10px;border-radius:10px;border:1px solid var(--border);
+      background:var(--surface2);color:var(--dim);
+      font-size:.65rem;font-weight:600;cursor:pointer;
+      transition:background .15s,color .15s,border-color .15s;
+    }
+    .pbtn.active{background:var(--ac);color:#0d1117;border-color:var(--ac)}
+
+    /* CHANGE BADGE */
+    .change-row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+    .change-badge{
+      display:flex;align-items:center;gap:5px;
+      background:var(--surface2);border:1px solid var(--border);
+      border-radius:8px;padding:8px 12px;flex:1;min-width:80px;
+    }
+    .change-badge .cb-lbl{font-size:.58rem;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+    .change-badge .cb-val{font-size:.88rem;font-weight:700;margin-top:2px}
+    .change-badge .cb-pct{font-size:.62rem;margin-top:1px}
+    .up{color:#00e676}.down{color:#ff5252}.flat{color:var(--dim)}
 
     /* STATS */
     .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
@@ -98,7 +120,7 @@
 
 <header class="hdr">
   <div class="hdr-left">
-    <div class="hdr-badge">MyFarmi 
+    <div class="hdr-badge">MyFarmi</div>
     <div>
       <div class="hdr-title">Mygos Technology</div>
     </div>
@@ -132,14 +154,55 @@ const SENSORS = [
 ];
 
 const MAX_PTS = 30;
-const state   = {};   // { id: { vals:[], cur, chart } }
+const state   = {};
+
+// ── Generate historical data ───────────────────────────────────────────────
+function genHistory(s, count, stepMult) {
+  const vals = [], now = new Date();
+  let cur = s.start;
+  for (let i = 0; i < count; i++) {
+    cur = Math.max(s.min, Math.min(s.max, cur + (Math.random() - .48) * s.step * stepMult));
+    vals.push(parseFloat(cur.toFixed(s.decimals)));
+  }
+  return vals;
+}
+
+function dailyLabels() {
+  const labels = [];
+  for (let h = 0; h < 24; h++) labels.push(String(h).padStart(2,"0") + ":00");
+  return labels;
+}
+
+function monthlyLabels() {
+  const now = new Date();
+  const days = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const labels = [];
+  for (let d = 1; d <= days; d++) labels.push(d + " " + months[now.getMonth()]);
+  return labels;
+}
+
+const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function yearlyLabels() { return [...MONTH_NAMES]; }
 
 // ── Build UI ──────────────────────────────────────────────────────────────
 const tabbar   = document.getElementById("tabbar");
 const sections = document.getElementById("sections");
 
+const dayLbls  = dailyLabels();
+const monLbls  = monthlyLabels();
+const yrLbls   = yearlyLabels();
+
 SENSORS.forEach((s, i) => {
-  state[s.id] = { vals: [], cur: s.start };
+  const histDay  = genHistory(s, 24,  6);
+  const histMon  = genHistory(s, monLbls.length, 12);
+  const histYear = genHistory(s, 12, 20);
+
+  state[s.id] = {
+    vals: [], cur: s.start,
+    histDay, histMon, histYear,
+    period: "live"
+  };
 
   // Tab
   const t = document.createElement("div");
@@ -172,10 +235,19 @@ SENSORS.forEach((s, i) => {
     </div>
     <div class="chart-card">
       <div class="chart-hdr">
-        <div class="chart-title">${s.label} Trend</div>
-        <div class="chart-meta">last 30 readings · 2 s interval</div>
+        <div>
+          <div class="chart-title">${s.label} Trend</div>
+          <div class="chart-meta" id="meta-${s.id}">last 30 readings · 2 s interval</div>
+        </div>
+        <div class="period-btns">
+          <button class="pbtn active" id="pb-live-${s.id}" onclick="switchPeriod('${s.id}','live')">Live</button>
+          <button class="pbtn"        id="pb-day-${s.id}"  onclick="switchPeriod('${s.id}','day')">Day</button>
+          <button class="pbtn"        id="pb-mon-${s.id}"  onclick="switchPeriod('${s.id}','mon')">Month</button>
+          <button class="pbtn"        id="pb-year-${s.id}" onclick="switchPeriod('${s.id}','year')">Year</button>
+        </div>
       </div>
       <div class="chart-wrap"><canvas id="chart-${s.id}"></canvas></div>
+      <div class="change-row" id="changes-${s.id}" style="display:none"></div>
       <div class="stats">
         <div class="stat"><div class="stat-val" id="min-${s.id}">—</div><div class="stat-lbl">Min ${s.unit}</div></div>
         <div class="stat"><div class="stat-val" id="avg-${s.id}">—</div><div class="stat-lbl">Avg ${s.unit}</div></div>
@@ -210,7 +282,7 @@ SENSORS.forEach((s, i) => {
         tooltip:{mode:"index",intersect:false}
       },
       scales:{
-        x:{ticks:{color:"#7a8299",font:{size:10},maxTicksLimit:6},grid:{color:"#2a3048"}},
+        x:{ticks:{color:"#7a8299",font:{size:10},maxTicksLimit:8},grid:{color:"#2a3048"}},
         y:{
           ticks:{color:"#7a8299",font:{size:10},
             callback: v => s.decimals===0 ? v.toFixed(0) : v.toFixed(s.decimals)
@@ -230,7 +302,109 @@ function switchTab(id){
   document.querySelectorAll(".section").forEach(s=>s.classList.toggle("active", s.id==="sec-"+id));
 }
 
-// ── Data push ─────────────────────────────────────────────────────────────
+// ── Period switch ─────────────────────────────────────────────────────────
+function switchPeriod(sid, period) {
+  const s   = SENSORS.find(x=>x.id===sid);
+  const st  = state[sid];
+  st.period = period;
+
+  // Update button styles
+  ["live","day","mon","year"].forEach(p => {
+    const btn = document.getElementById("pb-"+p+"-"+sid);
+    if (btn) btn.classList.toggle("active", p===period);
+  });
+
+  const chart   = st.chart;
+  const changes = document.getElementById("changes-"+sid);
+  const meta    = document.getElementById("meta-"+sid);
+
+  if (period === "live") {
+    const vals = st.vals;
+    chart.data.labels   = vals.map((_,i)=>String(i));   // will be replaced on next tick
+    chart.data.datasets[0].data = [...vals];
+    chart.options.scales.x.ticks.maxTicksLimit = 6;
+    chart.update();
+    meta.textContent = "last 30 readings · 2 s interval";
+    changes.style.display = "none";
+    updateStats(sid, vals, s.decimals);
+    return;
+  }
+
+  let labels, vals, periodLabel, prevVals;
+  if (period === "day") {
+    labels = dayLbls; vals = st.histDay;
+    periodLabel = "Hourly · today (24 h)";
+    // "change" compared to yesterday: fake it as first half vs second half
+    prevVals = genHistory(s, 24, 6);
+  } else if (period === "mon") {
+    labels = monLbls; vals = st.histMon;
+    periodLabel = "Daily · this month";
+    prevVals = genHistory(s, monLbls.length, 12);
+  } else {
+    labels = yrLbls; vals = st.histYear;
+    periodLabel = "Monthly · this year";
+    prevVals = genHistory(s, 12, 20);
+  }
+
+  chart.data.labels = labels;
+  chart.data.datasets[0].data = vals;
+  chart.options.scales.x.ticks.maxTicksLimit = period==="year" ? 12 : 8;
+  chart.update();
+  meta.textContent = periodLabel;
+  updateStats(sid, vals, s.decimals);
+
+  // Change badges
+  renderChanges(sid, s, vals, prevVals, period);
+  changes.style.display = "flex";
+}
+
+function renderChanges(sid, s, curVals, prevVals, period) {
+  const row = document.getElementById("changes-"+sid);
+  const f   = v => v.toFixed(s.decimals);
+
+  const curAvg  = curVals.reduce((a,b)=>a+b,0)/curVals.length;
+  const prevAvg = prevVals.reduce((a,b)=>a+b,0)/prevVals.length;
+  const diff    = curAvg - prevAvg;
+  const pct     = prevAvg !== 0 ? (diff/prevAvg*100) : 0;
+
+  const curMax  = Math.max(...curVals);
+  const prevMax = Math.max(...prevVals);
+  const diffMax = curMax - prevMax;
+  const pctMax  = prevMax !== 0 ? (diffMax/prevMax*100) : 0;
+
+  const curMin  = Math.min(...curVals);
+  const prevMin = Math.min(...prevVals);
+  const diffMin = curMin - prevMin;
+  const pctMin  = prevMin !== 0 ? (diffMin/prevMin*100) : 0;
+
+  const periodPrev = period==="day" ? "yesterday" : period==="mon" ? "last month" : "last year";
+  row.innerHTML = badge("Avg vs "+periodPrev, f(curAvg), diff, pct, s.unit)
+                + badge("Max vs "+periodPrev, f(curMax), diffMax, pctMax, s.unit)
+                + badge("Min vs "+periodPrev, f(curMin), diffMin, pctMin, s.unit);
+}
+
+function badge(lbl, val, diff, pct, unit) {
+  const cls  = diff > 0.001 ? "up" : diff < -0.001 ? "down" : "flat";
+  const arrow = diff > 0.001 ? "▲" : diff < -0.001 ? "▼" : "—";
+  return `<div class="change-badge">
+    <div>
+      <div class="cb-lbl">${lbl}</div>
+      <div class="cb-val ${cls}">${val} <span style="font-size:.65rem;font-weight:400">${unit}</span></div>
+      <div class="cb-pct ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}%</div>
+    </div>
+  </div>`;
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────
+function updateStats(sid, vals, dec) {
+  if (!vals.length) return;
+  const f = v => v.toFixed(dec);
+  document.getElementById("min-"+sid).textContent = f(Math.min(...vals));
+  document.getElementById("avg-"+sid).textContent = f(vals.reduce((a,b)=>a+b,0)/vals.length);
+  document.getElementById("max-"+sid).textContent = f(Math.max(...vals));
+}
+
+// ── Live data push ─────────────────────────────────────────────────────────
 function fmt(v, dec){ return v.toFixed(dec); }
 function clamp(v,mn,mx){ return Math.max(mn,Math.min(mx,v)); }
 function timeStr(){ return new Date().toLocaleTimeString("en-GB"); }
@@ -238,7 +412,6 @@ function barPct(v,mn,mx){ return Math.min(100,Math.max(0,(v-mn)/(mx-mn)*100)).to
 
 function pushSensor(s){
   const st = state[s.id];
-  // random walk
   st.cur = clamp(st.cur + (Math.random()-.48)*s.step*2, s.min, s.max);
   const v   = st.cur;
   const lbl = timeStr();
@@ -246,19 +419,20 @@ function pushSensor(s){
   st.vals.push(v);
   if(st.vals.length > MAX_PTS) st.vals.shift();
 
+  // Always update main card
+  document.getElementById("val-" +s.id).textContent = fmt(v, s.decimals);
+  document.getElementById("time-"+s.id).textContent = lbl;
+  document.getElementById("bar-" +s.id).style.width = barPct(v,s.min,s.max)+"%";
+
+  // Only update chart/stats if in live mode
+  if (st.period !== "live") return;
+
   const ch = st.chart;
   ch.data.labels.push(lbl);
   ch.data.datasets[0].data.push(v);
   if(ch.data.labels.length > MAX_PTS){ ch.data.labels.shift(); ch.data.datasets[0].data.shift(); }
   ch.update();
-
-  const f = n => fmt(n, s.decimals);
-  document.getElementById("val-" +s.id).textContent = f(v);
-  document.getElementById("time-"+s.id).textContent = lbl;
-  document.getElementById("bar-" +s.id).style.width = barPct(v,s.min,s.max)+"%";
-  document.getElementById("min-" +s.id).textContent = f(Math.min(...st.vals));
-  document.getElementById("avg-" +s.id).textContent = f(st.vals.reduce((a,b)=>a+b,0)/st.vals.length);
-  document.getElementById("max-" +s.id).textContent = f(Math.max(...st.vals));
+  updateStats(s.id, st.vals, s.decimals);
 }
 
 // Initial tick
