@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Mygos - MyFarmi v1.0</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"></script>
+  <script src="config.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -253,13 +254,32 @@
     /* ── LOG ── */
     .log-ul {
       list-style: none; display: flex; flex-direction: column; gap: 3px;
-      max-height: 260px; overflow-y: auto;
+      max-height: calc(100vh - 220px); overflow-y: auto;
     }
-    .log-ul li { font-size: 0.73rem; color: #777; font-family: monospace; padding: 2px 0; }
-    .log-ul li .ts { color: #444; margin-right: 5px; }
+    .log-ul li { font-size: 0.73rem; color: #777; font-family: monospace; padding: 3px 0; border-bottom: 1px solid #1a1f2e; }
+    .log-ul li .ts { color: #555; margin-right: 6px; }
     .log-ul li.ok   { color: var(--green); }
     .log-ul li.err  { color: var(--red); }
     .log-ul li.info { color: var(--blue); }
+    .log-ul li.rx   { color: var(--amber); }
+
+    /* ── LOG TOOLBAR ── */
+    .log-toolbar {
+      display: flex; gap: 6px; padding: 8px 12px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+    .log-filter {
+      padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border);
+      background: var(--surface2); color: var(--dim);
+      font-size: 0.72rem; cursor: pointer; white-space: nowrap;
+    }
+    .log-filter.active { background: var(--blue2); color: #fff; border-color: var(--blue); }
+    .log-clear {
+      margin-left: auto; padding: 4px 10px; border-radius: 12px;
+      border: 1px solid var(--red); background: transparent;
+      color: var(--red); font-size: 0.72rem; cursor: pointer; white-space: nowrap;
+    }
 
     .card {
       background: var(--surface); border: 1px solid var(--border);
@@ -475,7 +495,7 @@
     </div>
     <div class="ssbtn" onclick="openDetail('co2')">
       <div class="ssi">☁️</div>
-      <div class="sst">CO₂</div>
+      <div class="sst">CO2</div>
       <div class="ssd">Max · Min<br>Pulse ON · Pulse OFF (sec)</div>
     </div>
     <div class="ssbtn" onclick="openDetail('aircirculation')">
@@ -555,8 +575,15 @@
     <button class="back" onclick="showPage('settings')">‹ Back</button>
     <div class="ptitle">Data Log</div>
   </div>
-  <div class="card">
-    <div class="sec-title">MQTT LOG</div>
+  <div class="log-toolbar">
+    <button class="log-filter active" id="lf-all"  onclick="setLogFilter('all')">All</button>
+    <button class="log-filter"        id="lf-info" onclick="setLogFilter('info')">Sent</button>
+    <button class="log-filter"        id="lf-rx"   onclick="setLogFilter('rx')">Received</button>
+    <button class="log-filter"        id="lf-ok"   onclick="setLogFilter('ok')">OK</button>
+    <button class="log-filter"        id="lf-err"  onclick="setLogFilter('err')">Error</button>
+    <button class="log-clear" onclick="clearLog()">🗑 Clear</button>
+  </div>
+  <div class="card" style="border-top:none; border-radius:0 0 8px 8px;">
     <ul class="log-ul" id="log-ul"></ul>
   </div>
 </div>
@@ -584,16 +611,16 @@
   <button class="ni" id="ni-settings" onclick="navTo('settings')">
     <span class="ic">⚙️</span><span class="lb">Settings</span>
   </button>
+  <button class="ni" onclick="window.location.href='dashboard.html'">
+    <span class="ic">📈</span><span class="lb">Dashboard</span>
+  </button>
 </nav>
 
 <script>
 // ══════════════════════════════════════════════════
 //  MQTT CONNECTION
 // ══════════════════════════════════════════════════
-const BROKER   = "ad3b5e4479ab423da3d13a5d369a5c58.s1.eu.hivemq.cloud";
-const PORT     = 8884;
-const USERNAME = "MYPLC";
-const PASSWORD = "My220415";
+// BROKER, PORT, USERNAME, PASSWORD — config.js dosyasından yüklenir (bkz. config.example.js)
 const PFX      = "anka_glc";
 const CID      = "web_" + Math.random().toString(16).slice(2,10);
 
@@ -740,16 +767,69 @@ updateClock();
 // ══════════════════════════════════════════════════
 //  LOG
 // ══════════════════════════════════════════════════
+var LOG_KEY    = "anka_log";
+var LOG_MAX    = 300;
+var _logFilter = "all";
+
+function _fmtTs(d) {
+  var date = String(d.getDate()).padStart(2,"0") + "/"
+           + String(d.getMonth()+1).padStart(2,"0");
+  var time = [d.getHours(), d.getMinutes(), d.getSeconds()]
+               .map(function(n){ return String(n).padStart(2,"0"); }).join(":");
+  return date + " " + time;
+}
+
 function addLog(msg, type) {
-  var li = document.createElement("li");
-  if (type) li.classList.add(type);
-  var d  = new Date();
-  var ts = [d.getHours(), d.getMinutes(), d.getSeconds()]
-             .map(function(n){ return String(n).padStart(2,"0"); }).join(":");
-  li.innerHTML = '<span class="ts">' + ts + '</span>' + msg;
+  var d    = new Date();
+  var ts   = _fmtTs(d);
+  var t    = type || "";
+
+  // Persist to localStorage
+  var logs = [];
+  try { logs = JSON.parse(localStorage.getItem(LOG_KEY) || "[]"); } catch(e) {}
+  logs.unshift({ ms: d.getTime(), msg: msg, type: t });
+  if (logs.length > LOG_MAX) logs = logs.slice(0, LOG_MAX);
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(logs)); } catch(e) {}
+
+  // Add to on-screen list (only if filter matches)
+  if (_logFilter === "all" || _logFilter === t) {
+    var li = document.createElement("li");
+    if (t) li.classList.add(t);
+    li.innerHTML = '<span class="ts">' + ts + '</span>' + msg;
+    var ul = document.getElementById("log-ul");
+    ul.insertBefore(li, ul.firstChild);
+    if (ul.children.length > 150) ul.removeChild(ul.lastChild);
+  }
+}
+
+function loadLog(filter) {
+  _logFilter = filter || "all";
+  var logs = [];
+  try { logs = JSON.parse(localStorage.getItem(LOG_KEY) || "[]"); } catch(e) {}
   var ul = document.getElementById("log-ul");
-  ul.insertBefore(li, ul.firstChild);
-  if (ul.children.length > 60) ul.removeChild(ul.lastChild);
+  ul.innerHTML = "";
+  logs.forEach(function(e) {
+    if (_logFilter !== "all" && _logFilter !== e.type) return;
+    var li = document.createElement("li");
+    if (e.type) li.classList.add(e.type);
+    var ts = _fmtTs(new Date(e.ms));
+    li.innerHTML = '<span class="ts">' + ts + '</span>' + e.msg;
+    ul.appendChild(li);
+  });
+}
+
+function setLogFilter(f) {
+  _logFilter = f;
+  document.querySelectorAll(".log-filter").forEach(function(b){ b.classList.remove("active"); });
+  var btn = document.getElementById("lf-" + f);
+  if (btn) btn.classList.add("active");
+  loadLog(f);
+}
+
+function clearLog() {
+  if (!confirm("Clear all log entries?")) return;
+  localStorage.removeItem(LOG_KEY);
+  document.getElementById("log-ul").innerHTML = "";
 }
 
 // ══════════════════════════════════════════════════
@@ -758,6 +838,7 @@ function addLog(msg, type) {
 function showPage(id) {
   document.querySelectorAll(".page").forEach(function(p){ p.classList.remove("active"); });
   document.getElementById("page-" + id).classList.add("active");
+  if (id === "datalog") loadLog(_logFilter);   // refresh from localStorage on open
 }
 
 function navTo(page) {
@@ -926,7 +1007,7 @@ function saveDetail() {
   info.fields.forEach(function(f) {
     var val = document.getElementById("pd-" + f.id).value;
     localStorage.setItem(k + "_" + f.id, val);
-    pub(PFX + "/settings/" + k + "/" + f.id, val);
+    pub(PFX + "/settings/" + k + "/" + f.id, val, true);   // retain=true → HiveMQ stores new value
   });
   addLog(k.toUpperCase() + " settings sent", "ok");
   showPage(info.back);
@@ -976,11 +1057,11 @@ function saveLightDetail() {
 
   var startStr = String(parseInt(shour) || 0).padStart(2,"0") + ":"
                + String(parseInt(smin)  || 0).padStart(2,"0");
-  pub(PFX + "/settings/light/" + key + "/max",     max);
-  pub(PFX + "/settings/light/" + key + "/min",     min);
-  pub(PFX + "/settings/light/" + key + "/start",   startStr);
-  pub(PFX + "/settings/light/" + key + "/runtime", rt);
-  pub(PFX + "/settings/light/" + key + "/stop",    stop);
+  pub(PFX + "/settings/light/" + key + "/max",     max,      true);
+  pub(PFX + "/settings/light/" + key + "/min",     min,      true);
+  pub(PFX + "/settings/light/" + key + "/start",   startStr, true);
+  pub(PFX + "/settings/light/" + key + "/runtime", rt,       true);
+  pub(PFX + "/settings/light/" + key + "/stop",    stop,     true);
 
   addLog(key.toUpperCase() + " light settings sent", "ok");
   showPage("sl");
@@ -1000,23 +1081,52 @@ client.onConnectionLost = function(res) {
 client.onMessageArrived = function(msg) {
   var t = msg.destinationName;
   var v = msg.payloadString.trim();
+  // Short topic for display (strip prefix)
+  var shortT = t.indexOf(PFX + "/") === 0 ? t.slice(PFX.length + 1) : t;
 
   SENSORS.forEach(function(s) {
-    if (t === PFX + "/" + s.topic)
+    if (t === PFX + "/" + s.topic) {
       document.getElementById(s.id).textContent = v;
+      addLog("← " + shortT + ": " + v, "rx");
+    }
   });
   WATER.forEach(function(r) {
-    if (t === PFX + "/" + r.t + "/status") setW(r.key, v === "1");
+    if (t === PFX + "/" + r.t + "/status") {
+      setW(r.key, v === "1");
+      addLog("← " + shortT + ": " + (v==="1"?"ON":"OFF"), "rx");
+    }
   });
   AIR_DEVICES.forEach(function(r) {
-    if (t === PFX + "/" + r.t + "/status") setA(r.key, v === "1");
+    if (t === PFX + "/" + r.t + "/status") {
+      setA(r.key, v === "1");
+      addLog("← " + shortT + ": " + (v==="1"?"ON":"OFF"), "rx");
+    }
   });
   LIGHT_CHANNELS.forEach(function(r) {
-    if (t === PFX + "/" + r.t + "/status") setL(r.key, v === "1");
+    if (t === PFX + "/" + r.t + "/status") {
+      setL(r.key, v === "1");
+      addLog("← " + shortT + ": " + (v==="1"?"ON":"OFF"), "rx");
+    }
   });
   QRELAYS.forEach(function(n) {
-    if (t === PFX + "/" + n.toLowerCase() + "/status") setR(n, v === "1");
+    if (t === PFX + "/" + n.toLowerCase() + "/status") {
+      setR(n, v === "1");
+      addLog("← " + shortT + ": " + (v==="1"?"ON":"OFF"), "rx");
+    }
   });
+
+  // Settings from Pico (retained) → update localStorage
+  var settingsPfx = PFX + "/settings/";
+  if (t.indexOf(settingsPfx) === 0) {
+    var rest  = t.slice(settingsPfx.length);
+    var parts = rest.split("/");
+    if (parts[0] === "light" && parts.length === 3) {
+      localStorage.setItem(parts[1] + "_" + parts[2], v);
+    } else if (parts.length === 2) {
+      localStorage.setItem(parts[0] + "_" + parts[1], v);
+    }
+    addLog("← " + shortT + ": " + v, "rx");
+  }
 };
 
 function setUI(state, text) {
@@ -1024,11 +1134,11 @@ function setUI(state, text) {
   document.getElementById("conn-text").textContent = text;
 }
 
-function pub(topic, value) {
+function pub(topic, value, retained) {
   try {
     var m = new Paho.Message(String(value));
     m.destinationName = topic;
-    m.retained = false;
+    m.retained = retained === true;
     client.send(m);
     addLog("→ " + topic + ": " + value, "info");
   } catch(e) {
