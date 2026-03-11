@@ -699,7 +699,7 @@ function saveCredentials() {
   const port   = document.getElementById("ci-port").value.trim();
   const user   = document.getElementById("ci-user").value.trim();
   const pass   = document.getElementById("ci-pass").value;
-  if (!broker || !user || !pass) { alert("Tüm alanları doldurun."); return; }
+  if (!broker || !user || !pass) { alert("All fields are required!"); return; }
   localStorage.setItem("mqtt_broker",   broker);
   localStorage.setItem("mqtt_port",     port || "8884");
   localStorage.setItem("mqtt_username", user);
