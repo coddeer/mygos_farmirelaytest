@@ -28,6 +28,12 @@
       border:1px solid #00e676;border-radius:4px;padding:2px 6px}
     .hdr-title{font-size:.8rem;font-weight:600}
     .hdr-sub{font-size:.65rem;color:var(--dim)}
+    .hdr-clock{display:flex;flex-direction:column;align-items:center;gap:1px;flex:1;padding:0 8px}
+    .hdr-clock-date{font-size:.56rem;color:var(--dim);letter-spacing:.8px;text-transform:uppercase;white-space:nowrap}
+    .hdr-clock-time{font-size:1rem;font-weight:700;font-family:'Courier New',monospace;
+      background:linear-gradient(90deg,#18ffff,#64ffda);
+      -webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:2px}
+    .hdr-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
     .hdr-status{display:flex;align-items:center;gap:6px;font-size:.7rem;color:var(--dim)}
     .dot{width:8px;height:8px;border-radius:50%;background:#00e676;
       box-shadow:0 0 6px #00e676;animation:pulse 2s infinite}
@@ -125,7 +131,11 @@
       <div class="hdr-title">Mygos Technology</div>
     </div>
   </div>
-  <div style="display:flex;align-items:center;gap:10px">
+  <div class="hdr-clock">
+    <span class="hdr-clock-date" id="hdr-date">--- -- --- ----</span>
+    <span class="hdr-clock-time" id="hdr-time">--:--:--</span>
+  </div>
+  <div class="hdr-right">
     <button onclick="window.location.href='index.html'" style="background:#1e2435;border:1px solid #2a3048;border-radius:8px;padding:6px 12px;color:#e8eaf0;font-size:.8rem;cursor:pointer">‹ Back</button>
     <div class="hdr-status">
       <div class="dot"></div>
@@ -438,6 +448,20 @@ function pushSensor(s){
 // Initial tick
 SENSORS.forEach(s => pushSensor(s));
 setInterval(() => SENSORS.forEach(s => pushSensor(s)), 2000);
+
+const DAYS   = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function updateClock() {
+  var now = new Date();
+  var h = String(now.getHours()).padStart(2,"0");
+  var m = String(now.getMinutes()).padStart(2,"0");
+  var s = String(now.getSeconds()).padStart(2,"0");
+  document.getElementById("hdr-time").textContent = h+":"+m+":"+s;
+  document.getElementById("hdr-date").textContent =
+    DAYS[now.getDay()]+", "+now.getDate()+" "+MONTHS[now.getMonth()]+" "+now.getFullYear();
+}
+setInterval(updateClock, 1000);
+updateClock();
 </script>
 </body>
 </html>
