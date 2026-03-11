@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Mygos - MyFarmi v1.0</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"></script>
-  <script src="config.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -287,6 +286,35 @@
     }
     footer { font-size: 0.65rem; color: #2a4060; text-align: center; padding: 10px 0 4px; }
 
+    /* ── CREDENTIALS MODAL ── */
+    .cred-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.75); z-index: 1000;
+      align-items: center; justify-content: center;
+    }
+    .cred-overlay.open { display: flex; }
+    .cred-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 24px 20px; width: 92%; max-width: 360px;
+    }
+    .cred-title {
+      font-size: 0.9rem; font-weight: 700; margin-bottom: 18px;
+      background: linear-gradient(90deg, var(--blue), var(--teal));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .cred-label { font-size: 0.68rem; color: var(--dim); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+    .cred-input {
+      width: 100%; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px; color: var(--text);
+      font-size: 0.9rem; margin-bottom: 12px;
+    }
+    .cred-input:focus { outline: none; border-color: var(--blue); }
+    .cred-hint { font-size: 0.65rem; color: var(--dim); margin-bottom: 18px; line-height: 1.5; }
+    .hdr-key {
+      background: none; border: none; color: var(--dim);
+      font-size: 1rem; cursor: pointer; padding: 4px; line-height: 1;
+    }
+
     /* ── PAGE BANNER ── */
     .page-banner {
       background: linear-gradient(135deg, #0a1f3c, #0d2b1e);
@@ -315,8 +343,29 @@
   <div class="hdr-right">
     <span class="hdr-status" id="conn-text">Connecting...</span>
     <div class="dot wait" id="conn-dot"></div>
+    <button class="hdr-key" onclick="openCredModal()" title="MQTT Bağlantı Ayarları">🔑</button>
   </div>
 </header>
+
+<!-- ════ CREDENTIALS MODAL ════ -->
+<div class="cred-overlay" id="cred-overlay">
+  <div class="cred-box">
+    <div class="cred-title">🔌 MQTT Bağlantı Ayarları</div>
+    <div class="cred-label">Broker (HiveMQ Host)</div>
+    <input class="cred-input" id="ci-broker" type="text" placeholder="xxxx.s1.eu.hivemq.cloud" autocomplete="off" />
+    <div class="cred-label">Port</div>
+    <input class="cred-input" id="ci-port" type="number" placeholder="8884" />
+    <div class="cred-label">Kullanıcı Adı</div>
+    <input class="cred-input" id="ci-user" type="text" autocomplete="username" />
+    <div class="cred-label">Parola</div>
+    <input class="cred-input" id="ci-pass" type="password" autocomplete="current-password" />
+    <div class="cred-hint">Bilgiler yalnızca bu cihazın tarayıcısında saklanır. Sunucuya gönderilmez.</div>
+    <div class="btn-row">
+      <button class="btn btn-sec" onclick="closeCredModal()">İptal</button>
+      <button class="btn btn-ok" onclick="saveCredentials()">Kaydet & Bağlan</button>
+    </div>
+  </div>
+</div>
 
 <!-- ════ PAGES ════ -->
 
@@ -620,9 +669,53 @@
 // ══════════════════════════════════════════════════
 //  MQTT CONNECTION
 // ══════════════════════════════════════════════════
-// BROKER, PORT, USERNAME, PASSWORD — config.js dosyasından yüklenir (bkz. config.example.js)
-const PFX      = "anka_glc";
-const CID      = "web_" + Math.random().toString(16).slice(2,10);
+const PFX = "anka_glc";
+const CID = "web_" + Math.random().toString(16).slice(2,10);
+
+function getCredentials() {
+  return {
+    broker:   localStorage.getItem("mqtt_broker")   || "",
+    port:     parseInt(localStorage.getItem("mqtt_port") || "8884"),
+    username: localStorage.getItem("mqtt_username") || "",
+    password: localStorage.getItem("mqtt_password") || ""
+  };
+}
+
+function openCredModal() {
+  const c = getCredentials();
+  document.getElementById("ci-broker").value = c.broker;
+  document.getElementById("ci-port").value   = c.port || 8884;
+  document.getElementById("ci-user").value   = c.username;
+  document.getElementById("ci-pass").value   = c.password;
+  document.getElementById("cred-overlay").classList.add("open");
+}
+
+function closeCredModal() {
+  document.getElementById("cred-overlay").classList.remove("open");
+}
+
+function saveCredentials() {
+  const broker = document.getElementById("ci-broker").value.trim();
+  const port   = document.getElementById("ci-port").value.trim();
+  const user   = document.getElementById("ci-user").value.trim();
+  const pass   = document.getElementById("ci-pass").value;
+  if (!broker || !user || !pass) { alert("Tüm alanları doldurun."); return; }
+  localStorage.setItem("mqtt_broker",   broker);
+  localStorage.setItem("mqtt_port",     port || "8884");
+  localStorage.setItem("mqtt_username", user);
+  localStorage.setItem("mqtt_password", pass);
+  closeCredModal();
+  reconnect();
+}
+
+function reconnect() {
+  try { client.disconnect(); } catch(e) {}
+  const c = getCredentials();
+  client = new Paho.Client(c.broker, c.port, "/mqtt", CID);
+  client.onConnectionLost = onLost;
+  client.onMessageArrived = onMessage;
+  connect();
+}
 
 // ══ Sensors ══
 const SENSORS = [
@@ -1070,15 +1163,18 @@ function saveLightDetail() {
 // ══════════════════════════════════════════════════
 //  MQTT
 // ══════════════════════════════════════════════════
-var client = new Paho.Client(BROKER, PORT, "/mqtt", CID);
+var _c = getCredentials();
+var client = new Paho.Client(_c.broker || "localhost", _c.port, "/mqtt", CID);
 
-client.onConnectionLost = function(res) {
+function onLost(res) {
   setUI("err", "Disconnected");
   addLog("Disconnected: " + res.errorMessage, "err");
   setTimeout(connect, 3000);
-};
+}
 
-client.onMessageArrived = function(msg) {
+client.onConnectionLost = onLost;
+
+function onMessage(msg) {
   var t = msg.destinationName;
   var v = msg.payloadString.trim();
   // Short topic for display (strip prefix)
@@ -1127,7 +1223,9 @@ client.onMessageArrived = function(msg) {
     }
     addLog("← " + shortT + ": " + v, "rx");
   }
-};
+}
+
+client.onMessageArrived = onMessage;
 
 function setUI(state, text) {
   document.getElementById("conn-dot").className    = "dot " + state;
@@ -1147,13 +1245,19 @@ function pub(topic, value, retained) {
 }
 
 function connect() {
+  var c = getCredentials();
+  if (!c.broker || !c.username || !c.password) {
+    setUI("wait", "Ayar gerekli");
+    openCredModal();
+    return;
+  }
   setUI("wait", "Connecting...");
   client.connect({
     useSSL: true,
     keepAliveInterval: 30,
     cleanSession: true,
-    userName: USERNAME,
-    password: PASSWORD,
+    userName: c.username,
+    password: c.password,
     onSuccess: function() {
       setUI("ok", "HiveMQ ✓");
       addLog("Connected: " + CID, "ok");
@@ -1168,7 +1272,7 @@ function connect() {
     onFailure: function(err) {
       setUI("err", "Connection failed");
       addLog("Error: " + err.errorMessage, "err");
-      setTimeout(connect, 3000);
+      setTimeout(connect, 5000);
     }
   });
 }
