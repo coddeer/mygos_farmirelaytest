@@ -1,0 +1,8 @@
+# MQTT data
+config.js
+
+# OS files
+.DS_Store
+Thumbs.db
+
+Notes.txt

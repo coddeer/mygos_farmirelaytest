@@ -1,0 +1,1075 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Mygos - MyFarmi v1.0</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b27;
+      --surface2: #1e2435;
+      --border:   #2a3048;
+      --text:     #e8eaf0;
+      --dim:      #7a8299;
+      --green:    #00e676;
+      --green2:   #00c853;
+      --red:      #ff5252;
+      --blue:     #40c4ff;
+      --blue2:    #0091ea;
+      --cyan:     #18ffff;
+      --amber:    #ffab40;
+      --purple:   #e040fb;
+      --teal:     #64ffda;
+      --orange:   #ff6d00;
+      --yellow:   #ffd740;
+      --nav-h:    60px;
+      --hdr-h:    56px;
+    }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding-top: var(--hdr-h);
+      padding-bottom: var(--nav-h);
+      min-height: 100vh;
+    }
+
+    /* ── HEADER ── */
+    .hdr {
+      position: fixed; top: 0; left: 0; right: 0;
+      height: var(--hdr-h);
+      background: linear-gradient(135deg, #0d1b2e 0%, #0a2440 50%, #0d2b1e 100%);
+      border-bottom: 1px solid #1a3a5c;
+      display: flex; align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      z-index: 200;
+      box-shadow: 0 2px 20px rgba(0,150,255,.15);
+    }
+    .hdr-title {
+      font-size: 0.78rem; font-weight: 700; letter-spacing: 1px;
+      background: linear-gradient(90deg, var(--blue), var(--green));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      flex-shrink: 0; white-space: nowrap;
+    }
+    /* ── CLOCK ── */
+    .hdr-clock {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 1px; flex: 1; padding: 0 8px;
+    }
+    .hdr-clock-date {
+      font-size: 0.56rem; color: var(--dim);
+      letter-spacing: 0.8px; text-transform: uppercase; white-space: nowrap;
+    }
+    .hdr-clock-time {
+      font-size: 1rem; font-weight: 700;
+      font-family: 'Courier New', monospace;
+      background: linear-gradient(90deg, var(--cyan), var(--teal));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      letter-spacing: 2px;
+    }
+    .hdr-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .hdr-status { font-size: 0.62rem; color: var(--dim); white-space: nowrap; }
+    .dot {
+      width: 10px; height: 10px; border-radius: 50%; background: #444;
+      transition: background 0.3s; flex-shrink: 0;
+    }
+    .dot.ok   { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .dot.err  { background: var(--red); }
+    .dot.wait { background: var(--amber); animation: blink 1s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    /* ── PAGES ── */
+    .page { display: none; padding: 14px; }
+    .page.active { display: block; }
+
+    /* ── BOTTOM NAV ── */
+    .bnav {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      height: var(--nav-h);
+      background: linear-gradient(180deg, #111827 0%, #0d1117 100%);
+      border-top: 1px solid #1a3a5c;
+      display: flex; overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      z-index: 200;
+      box-shadow: 0 -2px 20px rgba(0,100,200,.1);
+    }
+    .bnav::-webkit-scrollbar { display: none; }
+    .ni {
+      flex: 0 0 auto; min-width: 60px;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 2px; cursor: pointer;
+      padding: 6px 8px; border: none;
+      background: none; color: var(--dim);
+      transition: color 0.2s; position: relative;
+    }
+    .ni.active { color: var(--blue); }
+    .ni.active::after {
+      content: '';
+      position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+      width: 24px; height: 2px;
+      background: linear-gradient(90deg, var(--blue), var(--green));
+      border-radius: 2px;
+    }
+    .ni .ic { font-size: 1.2rem; }
+    .ni .lb { font-size: 0.56rem; letter-spacing: 0.5px; white-space: nowrap; }
+
+    /* ── SENSOR GRID ── */
+    .sgrid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px; margin-bottom: 12px;
+    }
+    .sc {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 6px 10px; text-align: center;
+      position: relative; overflow: hidden;
+    }
+    .sc::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0; height: 3px;
+      background: var(--accent, var(--blue));
+    }
+    .sc .si { font-size: 1.1rem; margin-bottom: 4px; }
+    .sc .sl {
+      font-size: 0.58rem; color: var(--dim);
+      text-transform: uppercase; letter-spacing: .5px; margin-bottom: 5px;
+    }
+    .sc .sv { font-size: 1.1rem; font-weight: 700; color: var(--accent, var(--blue)); }
+    .sc .su { font-size: 0.57rem; color: var(--dim); margin-top: 2px; }
+
+    /* ── RELAY GRID ── */
+    .rgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .rbtn {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 16px 10px;
+      display: flex; flex-direction: column;
+      align-items: center; gap: 8px;
+      cursor: pointer; transition: all 0.2s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .rbtn.on {
+      border-color: var(--green); background: rgba(0,230,118,.06);
+      box-shadow: 0 0 18px rgba(0,230,118,.2);
+    }
+    .rbtn .ri {
+      width: 30px; height: 30px; border-radius: 50%;
+      background: #1a2035; border: 2px solid var(--border); transition: all .2s;
+    }
+    .rbtn.on .ri {
+      background: var(--green); border-color: var(--green);
+      box-shadow: 0 0 12px rgba(0,230,118,.7);
+    }
+    .rbtn .rn { font-size: 0.78rem; font-weight: 600; text-align: center; }
+    .rbtn .rs { font-size: 0.62rem; color: var(--dim); text-transform: uppercase; letter-spacing: .5px; }
+    .rbtn.on .rs { color: var(--green); }
+
+    /* ── SECTION TITLE ── */
+    .sec-title {
+      font-size: 0.68rem; color: var(--blue);
+      text-transform: uppercase; letter-spacing: 1.5px;
+      margin-bottom: 14px; padding-left: 8px;
+      border-left: 3px solid var(--blue);
+    }
+
+    /* ── PAGE HEADER ── */
+    .ph { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+    .back {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 7px 12px;
+      color: var(--text); cursor: pointer; font-size: 0.85rem;
+    }
+    .ptitle { font-size: 1.05rem; font-weight: 700; }
+
+    /* ── SETTINGS LIST ── */
+    .slist { display: flex; flex-direction: column; gap: 8px; }
+    .sitem {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 15px 14px;
+      display: flex; align-items: center; justify-content: space-between;
+      cursor: pointer; transition: border-color .2s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .sitem:active { border-color: var(--blue); box-shadow: 0 0 12px rgba(64,196,255,.15); }
+    .sitem .sl2 { display: flex; flex-direction: column; gap: 3px; }
+    .sitem .st  { font-size: 0.92rem; font-weight: 600; }
+    .sitem .sd  { font-size: 0.72rem; color: var(--dim); }
+    .sitem .sa  { color: var(--dim); font-size: 1rem; }
+
+    /* ── SUB-SETTINGS GRID ── */
+    .ssgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .ssbtn {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 18px 12px;
+      display: flex; flex-direction: column;
+      align-items: center; gap: 6px;
+      cursor: pointer; transition: border-color .2s; text-align: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .ssbtn:active { border-color: var(--blue); }
+    .ssbtn .ssi { font-size: 1.7rem; }
+    .ssbtn .sst { font-size: 0.88rem; font-weight: 600; }
+    .ssbtn .ssd { font-size: 0.64rem; color: var(--dim); line-height: 1.4; }
+
+    /* ── PARAM INPUTS ── */
+    .pgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .pcard {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 12px;
+      border-top: 2px solid var(--blue);
+    }
+    .pcard.ro { border-top-color: var(--dim); }
+    .plabel {
+      font-size: 0.65rem; color: var(--blue);
+      text-transform: uppercase; letter-spacing: .6px; margin-bottom: 8px;
+    }
+    .pcard.ro .plabel { color: var(--dim); }
+    .pinput {
+      width: 100%; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 10px 8px; color: var(--green);
+      font-size: 1.1rem; font-weight: 700; text-align: center;
+    }
+    .pinput:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 8px rgba(64,196,255,.2); }
+    .pinput[readonly] { color: var(--dim); cursor: default; }
+
+    /* ── BUTTONS ── */
+    .btn-row { display: flex; gap: 10px; margin-top: 18px; }
+    .btn {
+      flex: 1; border: none; border-radius: 8px;
+      padding: 12px; font-size: 0.88rem; font-weight: 600;
+      cursor: pointer; transition: opacity .2s, transform .1s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn-ok  { background: linear-gradient(135deg, var(--blue2), var(--green2)); color: #fff; }
+    .btn-sec { background: var(--surface2); color: var(--dim); border: 1px solid var(--border); }
+
+    /* ── LOG ── */
+    .log-ul {
+      list-style: none; display: flex; flex-direction: column; gap: 3px;
+      max-height: 260px; overflow-y: auto;
+    }
+    .log-ul li { font-size: 0.73rem; color: #777; font-family: monospace; padding: 2px 0; }
+    .log-ul li .ts { color: #444; margin-right: 5px; }
+    .log-ul li.ok   { color: var(--green); }
+    .log-ul li.err  { color: var(--red); }
+    .log-ul li.info { color: var(--blue); }
+
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px; margin-bottom: 12px;
+    }
+    footer { font-size: 0.65rem; color: #2a4060; text-align: center; padding: 10px 0 4px; }
+
+    /* ── PAGE BANNER ── */
+    .page-banner {
+      background: linear-gradient(135deg, #0a1f3c, #0d2b1e);
+      border: 1px solid #1a3a5c; border-radius: 12px;
+      padding: 12px 16px; margin-bottom: 14px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .page-banner .pb-icon { font-size: 1.5rem; }
+    .page-banner .pb-title {
+      font-size: 0.95rem; font-weight: 700;
+      background: linear-gradient(90deg, var(--blue), var(--teal));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .page-banner .pb-sub { font-size: 0.7rem; color: var(--dim); margin-top: 1px; }
+  </style>
+</head>
+<body>
+
+<!-- ════ HEADER — visible on every page ════ -->
+<header class="hdr">
+  <span class="hdr-title">MyFarmi v1.0</span>
+  <div class="hdr-clock">
+    <span class="hdr-clock-date" id="hdr-date">--- -- --- ----</span>
+    <span class="hdr-clock-time" id="hdr-time">--:--:--</span>
+  </div>
+  <div class="hdr-right">
+    <span class="hdr-status" id="conn-text">Connecting...</span>
+    <div class="dot wait" id="conn-dot"></div>
+  </div>
+</header>
+
+<!-- ════ PAGES ════ -->
+
+<!-- ── DASHBOARD ── -->
+<div class="page active" id="page-dashboard">
+  <div class="sgrid">
+    <div class="sc" style="--accent:#00e676">
+      <div class="si">🧪</div><div class="sl">pH</div>
+      <div class="sv" id="s-ph">--</div><div class="su">pH</div>
+    </div>
+    <div class="sc" style="--accent:#40c4ff">
+      <div class="si">⚡</div><div class="sl">EC</div>
+      <div class="sv" id="s-ec">--</div><div class="su">mS/cm</div>
+    </div>
+    <div class="sc" style="--accent:#e040fb">
+      <div class="si">☁️</div><div class="sl">CO₂</div>
+      <div class="sv" id="s-co2">--</div><div class="su">ppm</div>
+    </div>
+    <div class="sc" style="--accent:#18ffff">
+      <div class="si">🌊</div><div class="sl">Flow</div>
+      <div class="sv" id="s-flow">--</div><div class="su">L/min</div>
+    </div>
+    <div class="sc" style="--accent:#64ffda">
+      <div class="si">📊</div><div class="sl">Level</div>
+      <div class="sv" id="s-level">--</div><div class="su">%</div>
+    </div>
+    <div class="sc" style="--accent:#40c4ff">
+      <div class="si">💧</div><div class="sl">Water Temp</div>
+      <div class="sv" id="s-wtemp">--</div><div class="su">°C</div>
+    </div>
+    <div class="sc" style="--accent:#ffab40">
+      <div class="si">🌡️</div><div class="sl">Air Temp</div>
+      <div class="sv" id="s-atemp">--</div><div class="su">°C</div>
+    </div>
+    <div class="sc" style="--accent:#18ffff">
+      <div class="si">💦</div><div class="sl">Humidity</div>
+      <div class="sv" id="s-hum">--</div><div class="su">%</div>
+    </div>
+    <div class="sc" style="--accent:#ffd740">
+      <div class="si">☀️</div><div class="sl">Light</div>
+      <div class="sv" id="s-lux">--</div><div class="su">lux</div>
+    </div>
+  </div>
+  <footer>Mygos Technology</footer>
+</div>
+
+<!-- ── WATER ── -->
+<div class="page" id="page-water">
+  <div class="page-banner">
+    <div class="pb-icon">💧</div>
+    <div><div class="pb-title">WATER SYSTEM</div>
+    <div class="pb-sub">Pump and valve controls</div></div>
+  </div>
+  <div class="rgrid" id="water-grid"></div>
+</div>
+
+<!-- ── AIR ── -->
+<div class="page" id="page-air">
+  <div class="page-banner">
+    <div class="pb-icon">💨</div>
+    <div><div class="pb-title">AIR SYSTEM</div>
+    <div class="pb-sub">Fan and ventilation controls</div></div>
+  </div>
+  <div class="rgrid" id="air-grid"></div>
+</div>
+
+<!-- ── LIGHT ── -->
+<div class="page" id="page-light">
+  <div class="page-banner">
+    <div class="pb-icon">💡</div>
+    <div><div class="pb-title">LIGHT SYSTEM</div>
+    <div class="pb-sub">8 Channel control</div></div>
+  </div>
+  <div class="rgrid" id="light-ctrl-grid"></div>
+</div>
+
+<!-- ── RELAY ── -->
+<div class="page" id="page-relay">
+  <div class="page-banner">
+    <div class="pb-icon">🔌</div>
+    <div><div class="pb-title">RELAY CONTROL</div>
+    <div class="pb-sub">Q0 · Q1 · Q2 · Q3 · Q4</div></div>
+  </div>
+  <div class="rgrid" id="relay-grid"></div>
+</div>
+
+<!-- ── TIME ── -->
+<div class="page" id="page-time">
+  <div style="text-align:center;padding:50px 20px;color:var(--dim)">
+    <div style="font-size:2.8rem;margin-bottom:10px">⏱</div>
+    <p style="font-size:0.82rem">Timer module coming soon</p>
+  </div>
+</div>
+
+<!-- ── SETTINGS ── -->
+<div class="page" id="page-settings">
+  <div class="sec-title">SETTINGS</div>
+  <div class="slist">
+    <div class="sitem" onclick="showPage('sw')">
+      <div class="sl2">
+        <div class="st">💧 Water Settings</div>
+        <div class="sd">pH · EC · Blower · Water Temp</div>
+      </div>
+      <div class="sa">›</div>
+    </div>
+    <div class="sitem" onclick="showPage('sa')">
+      <div class="sl2">
+        <div class="st">💨 Air Settings</div>
+        <div class="sd">Temp · Humidity · CO₂ · Circulation</div>
+      </div>
+      <div class="sa">›</div>
+    </div>
+    <div class="sitem" onclick="showPage('sl')">
+      <div class="sl2">
+        <div class="st">💡 Light Settings</div>
+        <div class="sd">BW · GY · RB · GNL (8 Channels)</div>
+      </div>
+      <div class="sa">›</div>
+    </div>
+    <div class="sitem" onclick="showPage('datalog')">
+      <div class="sl2">
+        <div class="st">📊 Data Log</div>
+        <div class="sd">MQTT message history</div>
+      </div>
+      <div class="sa">›</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SETTINGS → WATER ── -->
+<div class="page" id="page-sw">
+  <div class="ph">
+    <button class="back" onclick="showPage('settings')">‹ Back</button>
+    <div class="ptitle">Water Settings</div>
+  </div>
+  <div class="ssgrid">
+    <div class="ssbtn" onclick="openDetail('ph')">
+      <div class="ssi">🧪</div>
+      <div class="sst">pH</div>
+      <div class="ssd">Max · Min<br>Pulse ON (sec) · Pulse OFF (sec)</div>
+    </div>
+    <div class="ssbtn" onclick="openDetail('ec')">
+      <div class="ssi">⚡</div>
+      <div class="sst">EC</div>
+      <div class="ssd">Max · Min<br>Pulse ON (sec) · Pulse OFF (sec)</div>
+    </div>
+    <div class="ssbtn" onclick="openDetail('blower')">
+      <div class="ssi">🌀</div>
+      <div class="sst">Blower</div>
+      <div class="ssd">Pulse ON (min)<br>Pulse OFF (sec)</div>
+    </div>
+    <div class="ssbtn" onclick="openDetail('watertemp')">
+      <div class="ssi">🌡️</div>
+      <div class="sst">Water Temp</div>
+      <div class="ssd">Set Maximum<br>Set Minimum</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SETTINGS → AIR ── -->
+<div class="page" id="page-sa">
+  <div class="ph">
+    <button class="back" onclick="showPage('settings')">‹ Back</button>
+    <div class="ptitle">Air Settings</div>
+  </div>
+  <div class="ssgrid">
+    <div class="ssbtn" onclick="openDetail('airtemp')">
+      <div class="ssi">🌡️</div>
+      <div class="sst">Air Temp</div>
+      <div class="ssd">Set Maximum<br>Set Minimum</div>
+    </div>
+    <div class="ssbtn" onclick="openDetail('humidity')">
+      <div class="ssi">💦</div>
+      <div class="sst">Humidity</div>
+      <div class="ssd">Set Maximum<br>Set Minimum</div>
+    </div>
+    <div class="ssbtn" onclick="openDetail('co2')">
+      <div class="ssi">☁️</div>
+      <div class="sst">CO₂</div>
+      <div class="ssd">Max · Min<br>Pulse ON · Pulse OFF (sec)</div>
+    </div>
+    <div class="ssbtn" onclick="openDetail('aircirculation')">
+      <div class="ssi">💨</div>
+      <div class="sst">Circulation</div>
+      <div class="ssd">Pulse ON (min)<br>Pulse OFF (sec)</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SETTINGS → LIGHT (8 Channels) ── -->
+<div class="page" id="page-sl">
+  <div class="ph">
+    <button class="back" onclick="showPage('settings')">‹ Back</button>
+    <div class="ptitle">Light Settings</div>
+  </div>
+  <div class="ssgrid" id="light-set-grid"></div>
+</div>
+
+<!-- ── SETTINGS → DETAIL (dynamic) ── -->
+<div class="page" id="page-detail">
+  <div class="ph">
+    <button class="back" id="detail-back-btn">‹ Back</button>
+    <div class="ptitle" id="detail-title">Settings</div>
+  </div>
+  <div class="pgrid" id="detail-fields"></div>
+  <div class="btn-row">
+    <button class="btn btn-sec" id="detail-cancel-btn">Cancel</button>
+    <button class="btn btn-ok" onclick="saveDetail()">Save &amp; Send</button>
+  </div>
+</div>
+
+<!-- ── SETTINGS → LIGHT DETAIL ── -->
+<div class="page" id="page-light-detail">
+  <div class="ph">
+    <button class="back" onclick="showPage('sl')">‹ Back</button>
+    <div class="ptitle" id="light-detail-title">Channel Settings</div>
+  </div>
+  <div class="pgrid">
+    <div class="pcard">
+      <div class="plabel">Maximum (%)</div>
+      <input class="pinput" type="number" id="ld-max" min="0" max="100" placeholder="100" />
+    </div>
+    <div class="pcard">
+      <div class="plabel">Minimum (%)</div>
+      <input class="pinput" type="number" id="ld-min" min="0" max="100" placeholder="0" />
+    </div>
+    <div class="pcard">
+      <div class="plabel">Start Hour</div>
+      <input class="pinput" type="number" id="ld-shour" min="0" max="23" placeholder="06"
+             oninput="calcStopTime()" />
+    </div>
+    <div class="pcard">
+      <div class="plabel">Minute</div>
+      <input class="pinput" type="number" id="ld-smin" min="0" max="59" placeholder="00"
+             oninput="calcStopTime()" />
+    </div>
+    <div class="pcard">
+      <div class="plabel">Run Time (hr)</div>
+      <input class="pinput" type="number" id="ld-runtime" min="0" max="24" step="0.5"
+             placeholder="12" oninput="calcStopTime()" />
+    </div>
+    <div class="pcard ro">
+      <div class="plabel">Stop Time</div>
+      <input class="pinput" type="text" id="ld-stoptime" readonly placeholder="18:00" />
+    </div>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-sec" onclick="showPage('sl')">Cancel</button>
+    <button class="btn btn-ok"  onclick="saveLightDetail()">Save &amp; Send</button>
+  </div>
+</div>
+
+<!-- ── DATA LOG ── -->
+<div class="page" id="page-datalog">
+  <div class="ph">
+    <button class="back" onclick="showPage('settings')">‹ Back</button>
+    <div class="ptitle">Data Log</div>
+  </div>
+  <div class="card">
+    <div class="sec-title">MQTT LOG</div>
+    <ul class="log-ul" id="log-ul"></ul>
+  </div>
+</div>
+
+<!-- ════ BOTTOM NAV ════ -->
+<nav class="bnav">
+  <button class="ni active" id="ni-dashboard" onclick="navTo('dashboard')">
+    <span class="ic">🏠</span><span class="lb">Home</span>
+  </button>
+  <button class="ni" id="ni-water" onclick="navTo('water')">
+    <span class="ic">💧</span><span class="lb">Water</span>
+  </button>
+  <button class="ni" id="ni-air" onclick="navTo('air')">
+    <span class="ic">💨</span><span class="lb">Air</span>
+  </button>
+  <button class="ni" id="ni-light" onclick="navTo('light')">
+    <span class="ic">💡</span><span class="lb">Light</span>
+  </button>
+  <button class="ni" id="ni-relay" onclick="navTo('relay')">
+    <span class="ic">🔌</span><span class="lb">Relay</span>
+  </button>
+  <button class="ni" id="ni-time" onclick="navTo('time')">
+    <span class="ic">⏱</span><span class="lb">Time</span>
+  </button>
+  <button class="ni" id="ni-settings" onclick="navTo('settings')">
+    <span class="ic">⚙️</span><span class="lb">Settings</span>
+  </button>
+</nav>
+
+<script>
+// ══════════════════════════════════════════════════
+//  MQTT CONNECTION
+// ══════════════════════════════════════════════════
+const BROKER   = "ad3b5e4479ab423da3d13a5d369a5c58.s1.eu.hivemq.cloud";
+const PORT     = 8884;
+const USERNAME = "MYPLC";
+const PASSWORD = "My220415";
+const PFX      = "anka_glc";
+const CID      = "web_" + Math.random().toString(16).slice(2,10);
+
+// ══ Sensors ══
+const SENSORS = [
+  { id:"s-ph",    topic:"sensor/ph"         },
+  { id:"s-ec",    topic:"sensor/ec"         },
+  { id:"s-co2",   topic:"sensor/co2"        },
+  { id:"s-flow",  topic:"sensor/flow"       },
+  { id:"s-level", topic:"sensor/level"      },
+  { id:"s-wtemp", topic:"sensor/water_temp" },
+  { id:"s-atemp", topic:"sensor/air_temp"   },
+  { id:"s-hum",   topic:"sensor/humidity"   },
+  { id:"s-lux",   topic:"sensor/lux"        },
+];
+
+// ══ Water relays (7) ══
+const WATER = [
+  { key:"up",       label:"pH Up",        t:"water/up"       },
+  { key:"down",     label:"pH Down",      t:"water/down"     },
+  { key:"ec",       label:"EC Dosing",    t:"water/ec"       },
+  { key:"get",      label:"Get",       t:"water/get"      },
+  { key:"waterd",    label:"Water D",  t:"water/waterd"    },
+  { key:"waterp",    label:"Water P",  t:"water/waterp"    },
+  { key:"circular", label:"Circulation",  t:"water/circulation" },
+  { key:"blower",   label:"Blower",       t:"water/blower"   },
+];
+
+// ══ Air devices ══
+const AIR_DEVICES = [
+  { key:"fan",     label:"Fan",            t:"air/fan"     },
+  { key:"exhaust", label:"Exhaust Fan",    t:"air/exhaust" },
+  { key:"co2inj",  label:"CO2 Injector",  t:"air/co2inj"  },
+  { key:"aircirc", label:"Circulation",    t:"air/aircirc" },
+];
+
+// ══ Light channels (8) ══
+const LIGHT_CHANNELS = [
+  { key:"bw1",  label:"BW-1",  t:"light/bw1"  },
+  { key:"bw2",  label:"BW-2",  t:"light/bw2"  },
+  { key:"gy1",  label:"GY-1",  t:"light/gy1"  },
+  { key:"gy2",  label:"GY-2",  t:"light/gy2"  },
+  { key:"rb1",  label:"RB-1",  t:"light/rb1"  },
+  { key:"rb2",  label:"RB-2",  t:"light/rb2"  },
+  { key:"gnl1", label:"GNL-1", t:"light/gnl1" },
+  { key:"gnl2", label:"GNL-2", t:"light/gnl2" },
+];
+
+// ══ Q0–Q4 Relays ══
+const QRELAYS = ["Q0","Q1","Q2","Q3","Q4"];
+
+// ══════════════════════════════════════════════════
+//  SETTINGS DEFINITION TABLE
+// ══════════════════════════════════════════════════
+const DETAIL_INFO = {
+  ph: {
+    title:"pH Settings", icon:"🧪", back:"sw",
+    fields:[
+      { id:"max",       label:"Maximum",      unit:"",      step:"0.01" },
+      { id:"min",       label:"Minimum",      unit:"",      step:"0.01" },
+      { id:"pulse_on",  label:"Pulse ON",     unit:"sec",   step:"0.1"  },
+      { id:"pulse_off", label:"Pulse OFF",    unit:"min",   step:"0.1"  },
+    ]
+  },
+  ec: {
+    title:"EC Settings", icon:"⚡", back:"sw",
+    fields:[
+      { id:"max",       label:"Maximum",      unit:"mS/cm", step:"0.01" },
+      { id:"min",       label:"Minimum",      unit:"mS/cm", step:"0.01" },
+      { id:"pulse_on",  label:"Pulse ON",     unit:"sec",   step:"0.1"  },
+      { id:"pulse_off", label:"Pulse OFF",    unit:"min",   step:"0.1"  },
+    ]
+  },
+  blower: {
+    title:"Blower Settings", icon:"🌀", back:"sw",
+    fields:[
+      { id:"pulse_on",  label:"Pulse ON",     unit:"sec",   step:"1"    },
+      { id:"pulse_off", label:"Pulse OFF",    unit:"min",   step:"1"    },
+    ]
+  },
+  watertemp: {
+    title:"Water Temp Settings", icon:"🌡️", back:"sw",
+    fields:[
+      { id:"max",       label:"Set Maximum",  unit:"°C",    step:"0.1"  },
+      { id:"min",       label:"Set Minimum",  unit:"°C",    step:"0.1"  },
+    ]
+  },
+  airtemp: {
+    title:"Air Temp Settings", icon:"🌡️", back:"sa",
+    fields:[
+      { id:"max",       label:"Set Maximum",  unit:"°C",    step:"0.1"  },
+      { id:"min",       label:"Set Minimum",  unit:"°C",    step:"0.1"  },
+    ]
+  },
+  humidity: {
+    title:"Humidity Settings", icon:"💦", back:"sa",
+    fields:[
+      { id:"max",       label:"Set Maximum",  unit:"%",     step:"1"    },
+      { id:"min",       label:"Set Minimum",  unit:"%",     step:"1"    },
+    ]
+  },
+  co2: {
+    title:"CO2 Settings", icon:"☁️", back:"sa",
+    fields:[
+      { id:"max",       label:"Set Maximum",  unit:"ppm",   step:"10"   },
+      { id:"min",       label:"Set Minimum",  unit:"ppm",   step:"10"   },
+      { id:"pulse_on",  label:"Pulse ON",     unit:"sec",   step:"1"    },
+      { id:"pulse_off", label:"Pulse OFF",    unit:"min",   step:"1"    },
+    ]
+  },
+  aircirculation: {
+    title:"Air Circulation Settings", icon:"💨", back:"sa",
+    fields:[
+      { id:"pulse_on",  label:"Pulse ON",     unit:"sec",   step:"1"    },
+      { id:"pulse_off", label:"Pulse OFF",    unit:"min",   step:"1"    },
+    ]
+  },
+};
+
+// ══ State ══
+const wState = {}, aState = {}, lState = {}, rState = {};
+let curDetail = null, curLightChan = null;
+
+// ══════════════════════════════════════════════════
+//  CLOCK & DATE — visible on all pages via header
+// ══════════════════════════════════════════════════
+const DAYS   = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun",
+                "Jul","Aug","Sep","Oct","Nov","Dec"];
+
+function updateClock() {
+  var now = new Date();
+  var h = String(now.getHours()).padStart(2,"0");
+  var m = String(now.getMinutes()).padStart(2,"0");
+  var s = String(now.getSeconds()).padStart(2,"0");
+  document.getElementById("hdr-time").textContent = h + ":" + m + ":" + s;
+  document.getElementById("hdr-date").textContent =
+    DAYS[now.getDay()] + ", " + now.getDate() + " " +
+    MONTHS[now.getMonth()] + " " + now.getFullYear();
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ══════════════════════════════════════════════════
+//  LOG
+// ══════════════════════════════════════════════════
+function addLog(msg, type) {
+  var li = document.createElement("li");
+  if (type) li.classList.add(type);
+  var d  = new Date();
+  var ts = [d.getHours(), d.getMinutes(), d.getSeconds()]
+             .map(function(n){ return String(n).padStart(2,"0"); }).join(":");
+  li.innerHTML = '<span class="ts">' + ts + '</span>' + msg;
+  var ul = document.getElementById("log-ul");
+  ul.insertBefore(li, ul.firstChild);
+  if (ul.children.length > 60) ul.removeChild(ul.lastChild);
+}
+
+// ══════════════════════════════════════════════════
+//  NAVIGATION
+// ══════════════════════════════════════════════════
+function showPage(id) {
+  document.querySelectorAll(".page").forEach(function(p){ p.classList.remove("active"); });
+  document.getElementById("page-" + id).classList.add("active");
+}
+
+function navTo(page) {
+  showPage(page);
+  document.querySelectorAll(".ni").forEach(function(n){ n.classList.remove("active"); });
+  var el = document.getElementById("ni-" + page);
+  if (el) el.classList.add("active");
+}
+
+// ══════════════════════════════════════════════════
+//  RELAY GRID BUILDERS
+// ══════════════════════════════════════════════════
+
+// ── Water ──
+function buildWater() {
+  var g = document.getElementById("water-grid");
+  WATER.forEach(function(r) {
+    wState[r.key] = false;
+    var d = document.createElement("div");
+    d.className = "rbtn"; d.id = "wb-" + r.key;
+    d.onclick = (function(k){ return function(){ toggleW(k); }; })(r.key);
+    d.innerHTML = '<div class="ri" id="wi-' + r.key + '"></div>'
+                + '<div class="rn">' + r.label + '</div>'
+                + '<div class="rs" id="ws-' + r.key + '">OFF</div>';
+    g.appendChild(d);
+  });
+}
+function toggleW(key) {
+  var r = WATER.find(function(x){ return x.key === key; });
+  if (!r) return;
+  pub(PFX + "/" + r.t + "/command", wState[key] ? "0" : "1");
+}
+function setW(key, val) {
+  wState[key] = val;
+  var b = document.getElementById("wb-" + key);
+  var s = document.getElementById("ws-" + key);
+  if (!b) return;
+  b.classList.toggle("on", val);
+  s.textContent = val ? "ON" : "OFF";
+}
+
+// ── Air ──
+function buildAir() {
+  var g = document.getElementById("air-grid");
+  AIR_DEVICES.forEach(function(r) {
+    aState[r.key] = false;
+    var d = document.createElement("div");
+    d.className = "rbtn"; d.id = "ab-" + r.key;
+    d.onclick = (function(k){ return function(){ toggleA(k); }; })(r.key);
+    d.innerHTML = '<div class="ri" id="ai-' + r.key + '"></div>'
+                + '<div class="rn">' + r.label + '</div>'
+                + '<div class="rs" id="as-' + r.key + '">OFF</div>';
+    g.appendChild(d);
+  });
+}
+function toggleA(key) {
+  var r = AIR_DEVICES.find(function(x){ return x.key === key; });
+  if (!r) return;
+  pub(PFX + "/" + r.t + "/command", aState[key] ? "0" : "1");
+}
+function setA(key, val) {
+  aState[key] = val;
+  var b = document.getElementById("ab-" + key);
+  var s = document.getElementById("as-" + key);
+  if (!b) return;
+  b.classList.toggle("on", val);
+  s.textContent = val ? "ON" : "OFF";
+}
+
+// ── Light Control ──
+function buildLightCtrl() {
+  var g = document.getElementById("light-ctrl-grid");
+  LIGHT_CHANNELS.forEach(function(r) {
+    lState[r.key] = false;
+    var d = document.createElement("div");
+    d.className = "rbtn"; d.id = "lb-" + r.key;
+    d.onclick = (function(k){ return function(){ toggleL(k); }; })(r.key);
+    d.innerHTML = '<div class="ri" id="li-' + r.key + '"></div>'
+                + '<div class="rn">' + r.label + '</div>'
+                + '<div class="rs" id="ls-' + r.key + '">OFF</div>';
+    g.appendChild(d);
+  });
+}
+function toggleL(key) {
+  var r = LIGHT_CHANNELS.find(function(x){ return x.key === key; });
+  if (!r) return;
+  pub(PFX + "/" + r.t + "/command", lState[key] ? "0" : "1");
+}
+function setL(key, val) {
+  lState[key] = val;
+  var b = document.getElementById("lb-" + key);
+  var s = document.getElementById("ls-" + key);
+  if (!b) return;
+  b.classList.toggle("on", val);
+  s.textContent = val ? "ON" : "OFF";
+}
+
+// ── Q Relays ──
+function buildRelays() {
+  var g = document.getElementById("relay-grid");
+  QRELAYS.forEach(function(n) {
+    rState[n] = false;
+    var d = document.createElement("div");
+    d.className = "rbtn"; d.id = "qb-" + n;
+    d.onclick = (function(nm){ return function(){ toggleR(nm); }; })(n);
+    d.innerHTML = '<div class="ri" id="qi-' + n + '"></div>'
+                + '<div class="rn">' + n + '</div>'
+                + '<div class="rs" id="qs-' + n + '">OFF</div>';
+    g.appendChild(d);
+  });
+}
+function toggleR(n) {
+  pub(PFX + "/" + n.toLowerCase() + "/command", rState[n] ? "0" : "1");
+}
+function setR(n, val) {
+  rState[n] = val;
+  var b = document.getElementById("qb-" + n);
+  var s = document.getElementById("qs-" + n);
+  if (!b) return;
+  b.classList.toggle("on", val);
+  s.textContent = val ? "ON" : "OFF";
+}
+
+// ── Light Settings List ──
+function buildLightSettings() {
+  var g = document.getElementById("light-set-grid");
+  LIGHT_CHANNELS.forEach(function(ch) {
+    var d = document.createElement("div");
+    d.className = "ssbtn";
+    d.onclick = (function(k){ return function(){ openLightDetail(k); }; })(ch.key);
+    d.innerHTML = '<div class="ssi">💡</div>'
+                + '<div class="sst">' + ch.label + '</div>'
+                + '<div class="ssd">Max · Min<br>Schedule</div>';
+    g.appendChild(d);
+  });
+}
+
+// ══════════════════════════════════════════════════
+//  SETTINGS DETAIL — dynamic field generation
+// ══════════════════════════════════════════════════
+function openDetail(key) {
+  curDetail = key;
+  var info = DETAIL_INFO[key];
+  document.getElementById("detail-title").textContent = info.title;
+  document.getElementById("detail-back-btn").onclick   = function(){ showPage(info.back); };
+  document.getElementById("detail-cancel-btn").onclick = function(){ showPage(info.back); };
+
+  var grid = document.getElementById("detail-fields");
+  grid.innerHTML = "";
+  info.fields.forEach(function(f) {
+    var lbl  = f.unit ? f.label + " (" + f.unit + ")" : f.label;
+    var val  = localStorage.getItem(key + "_" + f.id) || "";
+    var card = document.createElement("div");
+    card.className = "pcard";
+    card.innerHTML = '<div class="plabel">' + lbl + '</div>'
+                   + '<input class="pinput" type="number" id="pd-' + f.id + '"'
+                   + ' step="' + (f.step || 1) + '" value="' + val + '" placeholder="--" />';
+    grid.appendChild(card);
+  });
+  showPage("detail");
+}
+
+function saveDetail() {
+  var k = curDetail; if (!k) return;
+  var info = DETAIL_INFO[k];
+  info.fields.forEach(function(f) {
+    var val = document.getElementById("pd-" + f.id).value;
+    localStorage.setItem(k + "_" + f.id, val);
+    pub(PFX + "/settings/" + k + "/" + f.id, val);
+  });
+  addLog(k.toUpperCase() + " settings sent", "ok");
+  showPage(info.back);
+}
+
+// ══════════════════════════════════════════════════
+//  LIGHT CHANNEL DETAIL
+// ══════════════════════════════════════════════════
+function openLightDetail(key) {
+  curLightChan = key;
+  var ch = LIGHT_CHANNELS.find(function(c){ return c.key === key; });
+  document.getElementById("light-detail-title").textContent = ch.label + " Settings";
+  document.getElementById("ld-max").value     = localStorage.getItem(key + "_max")     || "";
+  document.getElementById("ld-min").value     = localStorage.getItem(key + "_min")     || "";
+  document.getElementById("ld-shour").value   = localStorage.getItem(key + "_shour")   || "6";
+  document.getElementById("ld-smin").value    = localStorage.getItem(key + "_smin")    || "0";
+  document.getElementById("ld-runtime").value = localStorage.getItem(key + "_runtime") || "12";
+  calcStopTime();
+  showPage("light-detail");
+}
+
+function calcStopTime() {
+  var sh = parseInt(document.getElementById("ld-shour").value)    || 0;
+  var sm = parseInt(document.getElementById("ld-smin").value)     || 0;
+  var rt = parseFloat(document.getElementById("ld-runtime").value) || 0;
+  var totalMins = sh * 60 + sm + Math.round(rt * 60);
+  var stopH = Math.floor(totalMins / 60) % 24;
+  var stopM = totalMins % 60;
+  document.getElementById("ld-stoptime").value =
+    String(stopH).padStart(2,"0") + ":" + String(stopM).padStart(2,"0");
+}
+
+function saveLightDetail() {
+  var key = curLightChan; if (!key) return;
+  var max   = document.getElementById("ld-max").value;
+  var min   = document.getElementById("ld-min").value;
+  var shour = document.getElementById("ld-shour").value;
+  var smin  = document.getElementById("ld-smin").value;
+  var rt    = document.getElementById("ld-runtime").value;
+  var stop  = document.getElementById("ld-stoptime").value;
+
+  localStorage.setItem(key + "_max",     max);
+  localStorage.setItem(key + "_min",     min);
+  localStorage.setItem(key + "_shour",   shour);
+  localStorage.setItem(key + "_smin",    smin);
+  localStorage.setItem(key + "_runtime", rt);
+
+  var startStr = String(parseInt(shour) || 0).padStart(2,"0") + ":"
+               + String(parseInt(smin)  || 0).padStart(2,"0");
+  pub(PFX + "/settings/light/" + key + "/max",     max);
+  pub(PFX + "/settings/light/" + key + "/min",     min);
+  pub(PFX + "/settings/light/" + key + "/start",   startStr);
+  pub(PFX + "/settings/light/" + key + "/runtime", rt);
+  pub(PFX + "/settings/light/" + key + "/stop",    stop);
+
+  addLog(key.toUpperCase() + " light settings sent", "ok");
+  showPage("sl");
+}
+
+// ══════════════════════════════════════════════════
+//  MQTT
+// ══════════════════════════════════════════════════
+var client = new Paho.Client(BROKER, PORT, "/mqtt", CID);
+
+client.onConnectionLost = function(res) {
+  setUI("err", "Disconnected");
+  addLog("Disconnected: " + res.errorMessage, "err");
+  setTimeout(connect, 3000);
+};
+
+client.onMessageArrived = function(msg) {
+  var t = msg.destinationName;
+  var v = msg.payloadString.trim();
+
+  SENSORS.forEach(function(s) {
+    if (t === PFX + "/" + s.topic)
+      document.getElementById(s.id).textContent = v;
+  });
+  WATER.forEach(function(r) {
+    if (t === PFX + "/" + r.t + "/status") setW(r.key, v === "1");
+  });
+  AIR_DEVICES.forEach(function(r) {
+    if (t === PFX + "/" + r.t + "/status") setA(r.key, v === "1");
+  });
+  LIGHT_CHANNELS.forEach(function(r) {
+    if (t === PFX + "/" + r.t + "/status") setL(r.key, v === "1");
+  });
+  QRELAYS.forEach(function(n) {
+    if (t === PFX + "/" + n.toLowerCase() + "/status") setR(n, v === "1");
+  });
+};
+
+function setUI(state, text) {
+  document.getElementById("conn-dot").className    = "dot " + state;
+  document.getElementById("conn-text").textContent = text;
+}
+
+function pub(topic, value) {
+  try {
+    var m = new Paho.Message(String(value));
+    m.destinationName = topic;
+    m.retained = false;
+    client.send(m);
+    addLog("→ " + topic + ": " + value, "info");
+  } catch(e) {
+    addLog("Send error: " + e, "err");
+  }
+}
+
+function connect() {
+  setUI("wait", "Connecting...");
+  client.connect({
+    useSSL: true,
+    keepAliveInterval: 30,
+    cleanSession: true,
+    userName: USERNAME,
+    password: PASSWORD,
+    onSuccess: function() {
+      setUI("ok", "HiveMQ ✓");
+      addLog("Connected: " + CID, "ok");
+      SENSORS.forEach(function(s)        { client.subscribe(PFX + "/" + s.topic); });
+      WATER.forEach(function(r)          { client.subscribe(PFX + "/" + r.t + "/status"); });
+      AIR_DEVICES.forEach(function(r)    { client.subscribe(PFX + "/" + r.t + "/status"); });
+      LIGHT_CHANNELS.forEach(function(r) { client.subscribe(PFX + "/" + r.t + "/status"); });
+      QRELAYS.forEach(function(n)        { client.subscribe(PFX + "/" + n.toLowerCase() + "/status"); });
+      client.subscribe(PFX + "/settings/#");
+      addLog("Subscribed to all topics", "info");
+    },
+    onFailure: function(err) {
+      setUI("err", "Connection failed");
+      addLog("Error: " + err.errorMessage, "err");
+      setTimeout(connect, 3000);
+    }
+  });
+}
+
+// ══ Init ══
+buildWater();
+buildAir();
+buildLightCtrl();
+buildRelays();
+buildLightSettings();
+connect();
+</script>
+</body>
+</html>
